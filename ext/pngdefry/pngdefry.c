@@ -34,7 +34,7 @@ int flag_Process_Anyway = 0;
 int flag_List_Chunks = 0;
 int flag_Debug = 0;
 int flag_UpdateAlpha = 1;
-int repack_IDAT_size = 524288;	/* 512K -- seems a bit much to me, axually, but have seen this used */
+size_t repack_IDAT_size = 524288;	/* 512K -- seems a bit much to me, axually, but have seen this used */
 
 int flag_Rewrite = 0;
 
@@ -80,10 +80,10 @@ unsigned int CRC_256[] = {
 	0xbdbdf21c, 0xcabac28a, 0x53b39330, 0x24b4a3a6, 0xbad03605, 0xcdd70693, 0x54de5729, 0x23d967bf, 0xb3667a2e, 0xc4614ab8, 0x5d681b02, 0x2a6f2b94, 0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d
 };
 
-int crc32s (unsigned char *buf, int buf_length)
+int crc32s (unsigned char *buf, size_t buf_length)
 {
 	unsigned int c = 0xffffffff;
-	int i;
+	size_t i;
 	for (i=0; i < buf_length; i++ )
 		c = CRC_256[(c ^ buf[i]) & 0xff] ^ (c >> 8);
 
@@ -106,7 +106,7 @@ int read_long (void *src)
 }
 
 
-int init_chunk (FILE *f, unsigned int filelength)
+int init_chunk (FILE *f, long filelength)
 {
 	struct chunk_t one_chunk;
 	unsigned char buf[8];
@@ -397,7 +397,7 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 	pngChunks = NULL;
 
 	FILE *f;
-	unsigned int length;
+	long length;
 	int i;
 	unsigned char buf[16];
 
@@ -414,7 +414,7 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 	struct chunk_t *ihdr_chunk = NULL;
 	int idat_first_index = 0;
 	unsigned char *all_idat = NULL;
-	unsigned int total_idat_size = 0;
+	size_t total_idat_size = 0;
 
 /* Adam7 interlacing information */
 	int Starting_Row [] =  { 0, 0, 4, 0, 2, 0, 1 };
@@ -425,22 +425,21 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 
 /* Needed for unpacking/repacking */
 	unsigned char *data_out;
-	int out_length;
+	size_t out_length;
 	unsigned char *data_repack = NULL;
-	int repack_size, repack_length;
+	size_t repack_size, repack_length;
 
 /* New file name comes here */
 	FILE *write_file;
-	int write_block_size;
+	size_t write_block_size;
 
 /*	int i,j,b;
 	int blocklength, blockid;
 	unsigned int filterbytes;
 	int isInterlaced = 0; */
 
-	int didShowName = 0;
-
-	int crc, result;
+	unsigned int crc;
+	int result;
 
 	f = fopen (filename, "rb");
 	if (!f)
@@ -490,7 +489,6 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 			reset_chunks ();
 			return 0;
 		}
-		didShowName = 1;
 	}
 
 	do
@@ -500,19 +498,12 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 		{
 			fclose (f);
 
-			if (didShowName)
-				printf ("    ");
-			else
-			{
-				didShowName = 1;
-				printf ("%s : ", filename);
-			}
 			switch (result)
 			{
-				case -1: printf ("invalid chunk size\n"); break;
-				case -2: printf ("out of memory\n"); break;
-				case -3: printf ("premature end of file\n"); break;
-				default: printf ("error code %d\n", result);
+				case -1: printf ("%s : invalid chunk size\n", filename); break;
+				case -2: printf ("%s : out of memory\n", filename); break;
+				case -3: printf ("%s : premature end of file\n", filename); break;
+				default: printf ("%s : error code %d\n", filename, result);
 			}
 			reset_chunks ();
 			return 0;
@@ -525,28 +516,14 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 	{
 		fclose (f);
 
-		if (didShowName)
-			printf ("    ");
-		else
-		{
-			didShowName = 1;
-			printf ("%s : ", filename);
-		}
-		printf ("missing IEND chunk\n");
+		printf ("%s : missing IEND chunk\n", filename);
 		reset_chunks ();
 		return 0;
 	}
 
 	if (fgetc (f) != EOF)
 	{
-		if (didShowName)
-			printf ("    ");
-		else
-		{
-			didShowName = 1;
-			printf ("%s : ", filename);
-		}
-		printf ("Extra data after IEND, very suspicious! Excluded from conversion\n");
+		printf ("%s : Extra data after IEND, very suspicious! Excluded from conversion\n", filename);
 	}
 	fclose (f);
 
@@ -554,15 +531,10 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 	{
 		for (i=0; i<num_chunks; i++)
 		{
-			if (!didShowName)
-			{
-				didShowName = 1;
-				printf ("%s :\n", filename);
-			}
-			printf ("    chunk : %c%c%c%c  length %6u  CRC32 %08X", (pngChunks[i].id >> 24) & 0xff,(pngChunks[i].id >> 16) & 0xff, (pngChunks[i].id >> 8) & 0xff,pngChunks[i].id & 0xff, pngChunks[i].length, pngChunks[i].crc32);
+			printf ("%s :    chunk : %c%c%c%c  length %6u  CRC32 %08X", filename, (pngChunks[i].id >> 24) & 0xff,(pngChunks[i].id >> 16) & 0xff, (pngChunks[i].id >> 8) & 0xff,pngChunks[i].id & 0xff, pngChunks[i].length, pngChunks[i].crc32);
 			crc = crc32s (pngChunks[i].data, pngChunks[i].length+4);
 			if (pngChunks[i].crc32 != crc)
-				printf (" --> CRC32 check invalid! Should be %08X", crc);
+				printf ("%s : --> CRC32 check invalid! Should be %08X", filename, crc);
 			printf ("\n");
 		}
 	} else
@@ -572,13 +544,8 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 			crc = crc32s (pngChunks[i].data, pngChunks[i].length+4);
 			if (pngChunks[i].crc32 != crc)
 			{
-				if (!didShowName)
-				{
-					didShowName = 1;
-					printf ("%s :\n", filename);
-				}
-				printf ("    chunk : %c%c%c%c  length %6u  CRC32 %08X", (pngChunks[i].id >> 24) & 0xff,(pngChunks[i].id >> 16) & 0xff, (pngChunks[i].id >> 8) & 0xff,pngChunks[i].id & 0xff, pngChunks[i].length, pngChunks[i].crc32);
-				printf (" -> invalid, changed to %08X\n", crc);
+				printf ("%s :     chunk : %c%c%c%c  length %6u  CRC32 %08X", filename, (pngChunks[i].id >> 24) & 0xff,(pngChunks[i].id >> 16) & 0xff, (pngChunks[i].id >> 8) & 0xff,pngChunks[i].id & 0xff, pngChunks[i].length, pngChunks[i].crc32);
+				printf ("%s :  -> invalid, changed to %08X\n", filename, crc);
 				pngChunks[i].crc32 = crc;
 			}
 		}
@@ -596,27 +563,13 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 
 	if (ihdr_chunk == NULL)
 	{
-		if (didShowName)
-			printf ("    ");
-		else
-		{
-			didShowName = 1;
-			printf ("%s : ", filename);
-		}
-		printf ("no IHDR chunk found\n");
+		printf ("%s : no IHDR chunk found\n", filename);
 		reset_chunks ();
 		return 0;
 	}
 	if (ihdr_chunk->length != 13)
 	{
-		if (didShowName)
-			printf ("    ");
-		else
-		{
-			didShowName = 1;
-			printf ("%s : ", filename);
-		}
-		printf ("IHDR chunk length incorrect\n");
+		printf ("%s : IHDR chunk length incorrect\n", filename);
 		reset_chunks ();
 		return 0;
 	}
@@ -637,53 +590,25 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 
 	if (imgwidth == 0 || imgheight == 0 || imgwidth > 2147483647 || imgheight > 2147483647)
 	{
-		if (didShowName)
-			printf ("    ");
-		else
-		{
-			didShowName = 1;
-			printf ("%s : ", filename);
-		}
-		printf ("image dimensions invalid\n");
+		printf ("%s : image dimensions invalid\n", filename);
 		reset_chunks ();
 		return 0;
 	}
 	if (compression != 0)
 	{
-		if (didShowName)
-			printf ("    ");
-		else
-		{
-			didShowName = 1;
-			printf ("%s : ", filename);
-		}
-		printf ("unknown compression type %d\n", compression);
+		printf ("%s : unknown compression type %d\n", filename, compression);
 		reset_chunks ();
 		return 0;
 	}
 	if (filter != 0)
 	{
-		if (didShowName)
-			printf ("    ");
-		else
-		{
-			didShowName = 1;
-			printf ("%s : ", filename);
-		}
-		printf ("unknown filter type %d\n", filter);
+		printf ("%s : unknown filter type %d\n", filename, filter);
 		reset_chunks ();
 		return 0;
 	}
 	if (interlace != 0 && interlace != 1)
 	{
-		if (didShowName)
-			printf ("    ");
-		else
-		{
-			didShowName = 1;
-			printf ("%s : ", filename);
-		}
-		printf ("unknown interlace type %d\n", interlace);
+		printf ("%s : unknown interlace type %d\n", filename, interlace);
 		reset_chunks ();
 		return 0;
 	}
@@ -746,27 +671,13 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 			bitspp = 4*bitdepth;
 			break;
 		default:
-			if (didShowName)
-				printf ("    ");
-			else
-			{
-				didShowName = 1;
-				printf ("%s : ", filename);
-			}
-			printf ("unknown color type %d\n", colortype);
+			printf ("%s : unknown color type %d\n", filename, colortype);
 			reset_chunks ();
 			return 0;
 	}
 	if (!i)
 	{
-		if (didShowName)
-			printf ("    ");
-		else
-		{
-			didShowName = 1;
-			printf ("%s : ", filename);
-		}
-		printf ("invalid bit depth %d for color type %d\n", bitdepth, colortype);
+		printf ("%s : invalid bit depth %d for color type %d\n", filename, bitdepth, colortype);
 		reset_chunks ();
 		return 0;
 	}
@@ -778,11 +689,8 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 
 	if (flag_Verbose)
 	{
-		if (!didShowName)
-		{
-			didShowName = 1;
-			printf ("%s :\n", filename);
-		}
+
+		printf ("%s :\n", filename);
 		printf ("    image width        : %u\n", imgwidth);
 		printf ("    image height       : %u\n", imgheight);
 		printf ("    bit depth          : %u\n", bitdepth);
@@ -829,14 +737,7 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 	}
 	if (i == num_chunks)
 	{
-		if (didShowName)
-			printf ("    ");
-		else
-		{
-			didShowName = 1;
-			printf ("%s : ", filename);
-		}
-		printf ("no IDAT chunks found\n");
+		printf ("%s : no IDAT chunks found\n", filename);
 		reset_chunks ();
 		return 0;
 	}
@@ -858,28 +759,14 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 	}
 	if (i != num_chunks)
 	{
-		if (didShowName)
-			printf ("    ");
-		else
-		{
-			didShowName = 1;
-			printf ("%s : ", filename);
-		}
-		printf ("IDAT chunks are not consecutive\n");
+		printf ("%s : IDAT chunks are not consecutive\n", filename);
 		reset_chunks ();
 		return 0;
 	}
 
 	if (total_idat_size == 0)
 	{
-		if (didShowName)
-			printf ("    ");
-		else
-		{
-			didShowName = 1;
-			printf ("%s : ", filename);
-		}
-		printf ("all IDAT chunks are empty\n");
+		printf ("%s : all IDAT chunks are empty\n", filename);
 		reset_chunks ();
 		return 0;
 	}
@@ -898,18 +785,11 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 
 	/*** Gather all IDATs into one ***/
 		if (flag_Debug)
-			printf ("    informational : total idat size: %u\n", total_idat_size);
+			printf ("    informational : total idat size: %lu\n", total_idat_size);
 		all_idat = (unsigned char *)malloc (total_idat_size);
 		if (all_idat == NULL)
 		{
-			if (didShowName)
-				printf ("    ");
-			else
-			{
-				didShowName = 1;
-				printf ("%s : ", filename);
-			}
-			printf ("out of memory\n");
+			printf ("%s : out of memory\n", filename);
 			reset_chunks ();
 			return 0;
 		}
@@ -927,22 +807,15 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 		if (data_out == NULL)
 		{
 			free (all_idat);
-			if (didShowName)
-				printf ("    ");
-			else
-			{
-				didShowName = 1;
-				printf ("%s : ", filename);
-			}
-			printf ("out of memory\n");
+			printf ("%s : out of memory\n", filename);
 			reset_chunks ();
 			return 0;
 		}
 
 		if (isPhoney)
-			out_length = tinfl_decompress_mem_to_mem(data_out, bytespline * imgheight + row_filter_bytes, all_idat, total_idat_size, 0);
+			out_length = tinfl_decompress_mem_to_mem(data_out, (size_t) bytespline * imgheight + row_filter_bytes, all_idat, total_idat_size, 0);
 		else
-			out_length = tinfl_decompress_mem_to_mem(data_out, bytespline * imgheight + row_filter_bytes, all_idat, total_idat_size, TINFL_FLAG_PARSE_ZLIB_HEADER);
+			out_length = tinfl_decompress_mem_to_mem(data_out, (size_t) bytespline * imgheight + row_filter_bytes, all_idat, total_idat_size, TINFL_FLAG_PARSE_ZLIB_HEADER);
 
 		free (all_idat);
 		all_idat = NULL;
@@ -950,41 +823,27 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 		if (out_length <= 0)
 		{
 			free (data_out);
-			if (didShowName)
-				printf ("    ");
-			else
-			{
-				didShowName = 1;
-				printf ("%s : ", filename);
-			}
-			printf ("unspecified decompression error\n");
+			printf ("%s : unspecified decompression error\n", filename);
 			reset_chunks ();
 			return 0;
 		}
 
 		if (out_length != imgheight*bytespline + row_filter_bytes)
 		{
-			if (didShowName)
-				printf ("    ");
-			else
-			{
-				didShowName = 1;
-				printf ("%s : ", filename);
-			}
-			printf ("decompression error, expected %u but got %u bytes\n", imgheight*bytespline + row_filter_bytes, out_length);
+			printf ("%s : decompression error, expected %u but got %lu bytes\n", filename, imgheight*bytespline + row_filter_bytes, out_length);
 			free (data_out);
 			reset_chunks ();
 			return 0;
 		}
 		if (flag_Verbose)
-			printf ("    uncompressed size  : %u bytes\n", bytespline * imgheight + row_filter_bytes);
+			printf ("%s :     uncompressed size  : %u bytes\n", filename, bytespline * imgheight + row_filter_bytes);
 
 		if (isPhoney || flag_Process_Anyway)
 		{
 			if (interlace == 1)		/* needs Adam7 unpacking! */
 			{
-				int x,y, b, row;
-				int pass, w,h;
+				unsigned int x,y, b, row;
+				unsigned int pass, w,h;
 				int startat;
 
 			/*	check if all row filters are okay */
@@ -999,14 +858,7 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 						if (data_out[y] > 4)
 						{
 							free (data_out);
-							if (didShowName)
-								printf ("    ");
-							else
-							{
-								didShowName = 1;
-								printf ("%s : ", filename);
-							}
-							printf ("unknown row filter type (%d)\n", data_out[y]);
+							printf ("%s : unknown row filter type (%d)\n", filename, data_out[y]);
 							reset_chunks ();
 							return 0;
 						}
@@ -1052,7 +904,7 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 				}
 			} else
 			{
-				int x,y, b;
+				unsigned int x,y, b;
 
 				/* check row filters */
 				y = 0;
@@ -1061,14 +913,7 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 					if (data_out[y] > 4)
 					{
 						free (data_out);
-						if (didShowName)
-							printf ("    ");
-						else
-						{
-							didShowName = 1;
-							printf ("%s : ", filename);
-						}
-						printf ("unknown row filter type (%d)\n", data_out[y]);
+						printf ("%s : unknown row filter type (%d)\n", filename, data_out[y]);
 						reset_chunks ();
 						return 0;
 					}
@@ -1109,14 +954,7 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 		if (data_repack == NULL)
 		{
 			free (data_out);
-			if (didShowName)
-				printf ("    ");
-			else
-			{
-				didShowName = 1;
-				printf ("%s : ", filename);
-			}
-			printf ("out of memory\n");
+			printf ("%s : out of memory\n", filename);
 			reset_chunks ();
 			return 0;
 		}
@@ -1128,36 +966,25 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 		{
 			free (data_out);
 			free (data_repack);
-			if (didShowName)
-				printf ("    ");
-			else
-			{
-				didShowName = 1;
-				printf ("%s : ", filename);
-			}
-			printf ("unspecified compression error\n");
+
+			printf ("%s : unspecified compression error\n", filename);
 			reset_chunks ();
 			return 0;
 		}
 
 		if (flag_Verbose)
-			printf ("    repacked size: %u bytes\n", repack_length);
+			printf ("%s :    repacked size: %lu bytes\n", filename, repack_length);
 
 		free (data_out);
 	}
 
 	if (write_file_name)
 	{
-		if (!didShowName)
-		{
-			printf ("%s : ", filename);
-		}
-		//printf ("writing to file %s\n", write_file_name);
 
 		write_file = fopen (write_file_name, "wb");
 		if (!write_file)
 		{
-			printf ("    failed to create output file!\n");
+			printf ("%s : failed to create output file!\n", filename);
 			reset_chunks ();
 			return 0;
 		}
@@ -1266,13 +1093,6 @@ int process (char *filename, char *write_file_name, unsigned int *width, unsigne
 		return 1;
 	}
 
-/* We come here if nothing was written */
-/* Just show the name and go away */
-	if (!didShowName)
-	{
-		printf ("%s\n", filename);
-	}
-
 	if (data_repack)
 		free (data_repack);
 
@@ -1306,7 +1126,7 @@ VALUE method_pngdefry_dimensions(VALUE self, VALUE input) {
   char *filename = StringValueCStr(input);
   unsigned int width = 0;
   unsigned int height = 0;
-  int result = process(filename, NULL, &width, &height);
+  process(filename, NULL, &width, &height);
 
   VALUE array = rb_ary_new();
   rb_ary_store(array, 0, INT2FIX(width));
